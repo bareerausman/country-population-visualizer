@@ -1,22 +1,37 @@
 package com.elanco.countrypopulation.controller;
 
+import com.elanco.countrypopulation.model.Country;
 import com.elanco.countrypopulation.service.CountryService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
-@Controller
-@RequiredArgsConstructor
+import java.util.List;
+import java.util.Map;
 
+@RestController
+@ RequestMapping("/api/countries")
 public class CountryController {
+
     private final CountryService countryService;
 
-    @GetMapping("/")
-    public String showCountries(Model model) {
-        model.addAttribute("countries", countryService.getAllCountries());
-        return "index";
+    @Autowired
+    public CountryController(CountryService countryService) {
+        this.countryService = countryService;
     }
 
-}
+    @GetMapping
+    public ResponseEntity<List<Country>> getAllCountries() {
+        return ResponseEntity.ok(countryService.getAllCountries());
+    }
 
+    @GetMapping("/{name}")
+    public ResponseEntity<Country> getCountryByName(@PathVariable String name) {
+        return ResponseEntity.ok(countryService.getCountryByName(name));
+    }
+
+    @GetMapping("/{countryName}/cities")
+    public ResponseEntity<List<Map<String, Object>>> getCityPopulations(@PathVariable String countryName) {
+        return ResponseEntity.ok(countryService.getCityPopulations(countryName));
+    }
+}

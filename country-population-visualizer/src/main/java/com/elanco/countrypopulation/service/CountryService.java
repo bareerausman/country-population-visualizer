@@ -1,6 +1,7 @@
 package com.elanco.countrypopulation.service;
 
 import com.elanco.countrypopulation.model.Country;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.*;
@@ -9,16 +10,12 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class CountryService {
-
-    // Primary APIs
-    private static final String COUNTRIES_NOW_BASE = "https://countriesnow.space/api/v0.1";
-    private static final String REST_COUNTRIES_API = "https://restcountries.com/v3.1";
-    private static final String POPULATION_API = "https://population.un.org/dataportal-api/v1";
+    private static final String COUNTRIES_NOW_API = "https://countriesnow.space/api/v0.1/countries";
 
     private final RestTemplate restTemplate;
 
@@ -27,187 +24,159 @@ public class CountryService {
         this.restTemplate = restTemplate;
     }
 
-    /**
-     * Get all countries with complete information
-     */
     @Cacheable("countries")
     public List<Country> getAllCountries() {
         try {
-            // Get base country data from REST Countries API
-            List<Country> countries = getBaseCountryData();
-
-            // Enrich with additional data
-            enrichWithDetailedData(countries);
+            List<Country> countries = getCountriesWithCapitals();
+            enrichWithFlags(countries);
 
             return countries.stream()
-                    .filter(c -> c.getName() != null && c.getPopulation() != null)
+                    .filter(c -> c.getName() != null)
                     .sorted(Comparator.comparing(Country::getName))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("Failed to retrieve country data", e);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to retrieve country data: " + e.getMessage()
+            );
+        }
+    }
+
+    private List<Country> getCountriesWithCapitals() {
+        try {
+            String url = COUNTRIES_NOW_API + "/capital";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<?> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    Map.class
+            );
+
+            if (response.getBody() == null || !response.getBody().containsKey("data")) {
+                throw new RuntimeException("No country data received");
+            }
+
+            List<Map<String, String>> countriesData =
+                    (List<Map<String, String>>) response.getBody().get("data");
+
+            return countriesData.stream()
+                    .map(this::mapToCountry)
                     .collect(Collectors.toList());
 
         } catch (Exception e) {
-            throw new ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to retrieve country data: " + e.getMessage()
-            );
+            log.error("Error fetching countries with capitals", e);
+            throw new RuntimeException("Failed to fetch countries with capitals", e);
         }
     }
 
-    /**
-     * Get base country data from REST Countries API
-     */
-    private List<Country> getBaseCountryData() {
-        String url = REST_COUNTRIES_API + "/all?fields=name,capital,population,flags,area";
-        ResponseEntity<Map[]> response = restTemplate.getForEntity(url, Map[].class);
-
-        return Arrays.stream(response.getBody())
-                .map(this::mapToCountry)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Map REST Countries API response to Country object
-     */
-    @SuppressWarnings("unchecked")
-    private Country mapToCountry(Map<String, Object> data) {
+    private Country mapToCountry(Map<String, String> data) {
         Country country = new Country();
-
-        // Get common name
-        Map<String, Object> name = (Map<String, Object>) data.get("name");
-        country.setName((String) name.get("common"));
-
-        // Get capital (first one if multiple)
-        List<String> capitals = (List<String>) data.get("capital");
-        if (capitals != null && !capitals.isEmpty()) {
-            country.setCapital(capitals.get(0));
-        }
-
-        // Get population
-        country.setPopulation(((Number) data.get("population")).longValue());
-
-        // Get flag URLs
-        Map<String, String> flags = (Map<String, String>) data.get("flags");
-        if (flags != null) {
-            // Prefer SVG, fallback to PNG
-            country.setFlag(flags.getOrDefault("svg", flags.get("png")));
-        }
-
+        country.setName(data.get("name"));
+        country.setCapital(data.get("capital"));
         return country;
     }
 
-    /**
-     * Enrich countries with additional data from multiple sources
-     */
-    private void enrichWithDetailedData(List<Country> countries) {
-        // Create parallel tasks for enrichment
-        CompletableFuture<Void> populationFuture = CompletableFuture
-                .runAsync(() -> enrichWithUNPopulation(countries));
-
-        CompletableFuture<Void> additionalDataFuture = CompletableFuture
-                .runAsync(() -> enrichWithAdditionalData(countries));
-
-        // Wait for all enrichment tasks to complete
-        CompletableFuture.allOf(populationFuture, additionalDataFuture).join();
-    }
-
-    /**
-     * Enrich with UN population data
-     */
-    private void enrichWithUNPopulation(List<Country> countries) {
+    private void enrichWithFlags(List<Country> countries) {
         try {
-            String url = POPULATION_API + "/data/indicators/49/locations";
-            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("countries",
+                    countries.stream()
+                            .map(Country::getName)
+                            .collect(Collectors.toList())
+            );
 
-            if (response.getBody() != null && response.getBody().containsKey("data")) {
-                List<Map<String, Object>> populationData = (List<Map<String, Object>>) response.getBody().get("data");
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
 
-                Map<String, Long> populationMap = new HashMap<>();
-                for (Map<String, Object> data : populationData) {
-                    String countryName = (String) data.get("location");
-                    Number value = (Number) data.get("value");
-                    if (value != null) {
-                        populationMap.put(countryName, value.longValue());
-                    }
-                }
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-                // Update population data if available
-                countries.forEach(country -> {
-                    Long population = populationMap.get(country.getName());
-                    if (population != null && population > 0) {
-                        country.setPopulation(population);
-                    }
-                });
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    COUNTRIES_NOW_API + "/flag/images",
+                    HttpMethod.POST,
+                    entity,
+                    Map.class
+            );
+
+            if (response.getBody() == null || !response.getBody().containsKey("data")) {
+                log.warn("No flag data received");
+                return;
             }
+
+            List<Map<String, String>> flagData =
+                    (List<Map<String, String>>) response.getBody().get("data");
+
+            Map<String, String> flagMap = flagData.stream()
+                    .collect(Collectors.toMap(
+                            data -> data.get("name"),
+                            data -> data.get("flag"),
+                            (v1, v2) -> v1
+                    ));
+
+            countries.forEach(country ->
+                    country.setFlag(flagMap.getOrDefault(country.getName(), null))
+            );
+
         } catch (Exception e) {
-            System.err.println("Failed to get UN population data: " + e.getMessage());
+            log.error("Error fetching country flags", e);
         }
     }
 
-    /**
-     * Enrich with additional country data
-     */
-    private void enrichWithAdditionalData(List<Country> countries) {
-        try {
-            String url = COUNTRIES_NOW_BASE + "/countries/info?returns=currency,iso2,iso3,languages";
-            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-
-            if (response.getBody() != null && response.getBody().containsKey("data")) {
-                List<Map<String, Object>> additionalData = (List<Map<String, Object>>) response.getBody().get("data");
-
-                Map<String, Map<String, Object>> dataMap = additionalData.stream()
-                        .collect(Collectors.toMap(
-                                data -> (String) data.get("name"),
-                                data -> data,
-                                (existing, replacement) -> existing
-                        ));
-
-                countries.forEach(country -> {
-                    Map<String, Object> data = dataMap.get(country.getName());
-                    if (data != null) {
-                        // Enrich with any additional data you want to include
-                        // For example: currency, ISO codes, languages, etc.
-                    }
-                });
-            }
-        } catch (Exception e) {
-            System.err.println("Failed to get additional country data: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Get a specific country by name
-     */
     @Cacheable("country")
     public Country getCountryByName(String name) {
         try {
-            String url = REST_COUNTRIES_API + "/name/" + name + "?fullText=true";
-            ResponseEntity<Map[]> response = restTemplate.getForEntity(url, Map[].class);
+            List<Country> countries = getAllCountries();
 
-            if (response.getBody() != null && response.getBody().length > 0) {
-                Country country = mapToCountry(response.getBody()[0]);
+            return countries.stream()
+                    .filter(c -> c.getName().equalsIgnoreCase(name))
+                    .findFirst()
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND,
+                            "Country not found: " + name
+                    ));
 
-                // Enrich with additional data
-                List<Country> countries = new ArrayList<>();
-                countries.add(country);
-                enrichWithDetailedData(countries);
-
-                return country;
-            }
-
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Country not found: " + name);
         } catch (Exception e) {
+            log.error("Failed to retrieve country details", e);
             throw new ResponseStatusException(
                     HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to retrieve country data: " + e.getMessage()
+                    "Failed to retrieve country details: " + e.getMessage()
             );
         }
     }
 
-    /**
-     * Search countries by name
-     */
-    public List<Country> searchCountries(String query) {
-        return getAllCountries().stream()
-                .filter(country -> country.getName().toLowerCase().contains(query.toLowerCase()))
-                .collect(Collectors.toList());
+    public List<Map<String, Object>> getCityPopulations(String countryName) {
+        try {
+            Map<String, String> requestBody = new HashMap<>();
+            requestBody.put("country", countryName);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<Map<String, String>> entity = new HttpEntity<>(requestBody, headers);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    COUNTRIES_NOW_API + "/population/cities",
+                    HttpMethod.POST,
+                    entity,
+                    Map.class
+            );
+
+            if (response.getBody() == null || !response.getBody().containsKey("data")) {
+                log.warn("No city population data received for {}", countryName);
+                return Collections.emptyList();
+            }
+
+            return (List<Map<String, Object>>) response.getBody().get("data");
+
+        } catch (Exception e) {
+            log.error("Error fetching city populations for {}", countryName, e);
+            return Collections.emptyList();
+        }
     }
 }
