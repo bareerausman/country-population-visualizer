@@ -53,7 +53,7 @@
 </head>
 <body>
 <div class="container mt-5">
-    <h1 class="mb-4">Country Population Visualizer</h1>
+    <h1 class="mb-4 text-center">Country Population Visualizer</h1>
 
     <div class="row mb-4">
         <div class="col-md-12">
@@ -83,18 +83,8 @@
                                 <th>Population</th>
                             </tr>
                             </thead>
-                            <tbody>
-                            <tr th:each="country : ${countries}">
-                                <td>
-                                    <img th:src="${country.flag != null ? country.flag : 'https://via.placeholder.com/40x30?text=No+Flag'}"
-                                         th:alt="${country.name + ' flag'}"
-                                         class="flag-img"
-                                         onerror="this.onerror=null; this.src='https://via.placeholder.com/40x30?text=No+Flag';">
-                                </td>
-                                <td class="country-name" th:text="${country.name}"></td>
-                                <td th:text="${country.capital != null ? country.capital : 'N/A'}"></td>
-                                <td class="population-cell" th:text="${country.formattedPopulation}"></td>
-                            </tr>
+                            <tbody id="countryTableBody">
+                            <!-- Rows dynamically inserted here -->
                             </tbody>
                         </table>
                     </div>
@@ -104,78 +94,100 @@
     </div>
 </div>
 
-<div class="loading">
+<div class="loading" id="loadingSpinner">
     <div class="spinner-border text-primary" role="status">
         <span class="visually-hidden">Loading...</span>
     </div>
 </div>
 
-<script th:inline="javascript">
-    const countries = [[${countries}]];
+<script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        const API_URL = 'https://restcountries.com/v3.1/all'; // API endpoint
+        const tableBody = document.getElementById('countryTableBody');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const ctx = document.getElementById('populationChart').getContext('2d');
 
-    // Sort countries by population (handling null values)
-    const sortedCountries = [...countries]
-        .filter(country => country.population != null && country.population > 0)
-        .sort((a, b) => b.population - a.population);
-    const top20Countries = sortedCountries.slice(0, 20);
+        loadingSpinner.style.display = 'block'; // Show loading spinner
 
-    const ctx = document.getElementById('populationChart').getContext('2d');
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: top20Countries.map(c => c.name),
-            datasets: [{
-                label: 'Population',
-                data: top20Countries.map(c => c.population),
-                backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 1,
-                borderRadius: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: false
+        try {
+            const response = await fetch(API_URL);
+            if (!response.ok) throw new Error('Failed to fetch data');
+            const countries = await response.json();
+
+            // Process and sort countries by population
+            const sortedCountries = countries
+                .filter(country => country.population)
+                .sort((a, b) => b.population - a.population);
+
+            // Populate the table
+            sortedCountries.forEach(country => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>
+                        <img src="${country.flags?.png || 'https://via.placeholder.com/40x30?text=No+Flag'}"
+                             alt="${country.name?.common} flag"
+                             class="flag-img"
+                             onerror="this.src='https://via.placeholder.com/40x30?text=No+Flag';">
+                    </td>
+                    <td class="country-name">${country.name?.common || 'N/A'}</td>
+                    <td>${country.capital?.[0] || 'N/A'}</td>
+                    <td class="population-cell">${country.population.toLocaleString()}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            // Top 20 countries for chart
+            const top20 = sortedCountries.slice(0, 20);
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: top20.map(c => c.name.common),
+                    datasets: [{
+                        label: 'Population',
+                        data: top20.map(c => c.population),
+                        backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1,
+                    }]
                 },
-                title: {
-                    display: true,
-                    text: 'Top 20 Countries by Population',
-                    font: {
-                        size: 16,
-                        weight: 'bold'
-                    }
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return 'Population: ' + context.raw.toLocaleString();
-                        }
-                    }
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return Number(value).toLocaleString();
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        title: {
+                            display: true,
+                            text: 'Top 20 Countries by Population',
+                            font: { size: 16, weight: 'bold' }
                         }
                     },
-                    title: {
-                        display: true,
-                        text: 'Population'
-                    }
-                },
-                x: {
-                    ticks: {
-                        maxRotation: 45,
-                        minRotation: 45
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return Number(value).toLocaleString();
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Population'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
                     }
                 }
-            }
+            });
+
+        } catch (error) {
+            console.error('Error:', error);
+        } finally {
+            loadingSpinner.style.display = 'none'; // Hide loading spinner
         }
     });
 </script>

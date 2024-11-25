@@ -11,6 +11,7 @@ public class Country {
     private String flag;
     private Long population;
 
+
     // Method to format population for display
     public String getFormattedPopulation() {
         if (population == null || population == 0) {

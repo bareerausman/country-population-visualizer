@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
 @RequiredArgsConstructor
+
 public class CountryController {
     private final CountryService countryService;
 
@@ -16,4 +17,6 @@ public class CountryController {
         model.addAttribute("countries", countryService.getAllCountries());
         return "index";
     }
+
 }
+
