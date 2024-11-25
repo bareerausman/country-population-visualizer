@@ -1,195 +1,282 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html lang="en">
 <head>
-    <title>Country Population Visualizer</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        .flag-img {
-            width: 40px;
-            height: 30px;
-            object-fit: cover;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .population-cell {
-            text-align: right;
-            font-family: monospace;
-            font-size: 0.9rem;
-        }
-        .table th {
-            background-color: #f8f9fa;
-            position: sticky;
-            top: 0;
-            z-index: 1;
-        }
-        .loading {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            display: none;
-            z-index: 1000;
-            background: rgba(255,255,255,0.8);
-            padding: 20px;
-            border-radius: 10px;
-        }
-        .chart-container {
-            height: 400px;
-            margin-bottom: 20px;
-        }
-        .table-container {
-            max-height: 600px;
-            overflow-y: auto;
-        }
-        .country-name {
-            font-weight: 500;
-        }
-        .card {
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Global Countries Insights</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root {
+      --primary-color: #0D1451;
+      --secondary-color: grey;
+      --background-color: #F4F4F8;
+      --text-color: #2C3E50;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Arial', sans-serif;
+      background: linear-gradient(to right, var(--background-color), #f0f0f0);
+      color: var(--text-color);
+      line-height: 1.6;
+    }
+
+    .dashboard-container {
+      max-width: 1400px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: white;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      border-radius: 15px;
+    }
+
+    .section-title {
+      text-align: center;
+      color: var(--primary-color);
+      margin-bottom: 20px;
+      font-size: 2rem;
+    }
+
+    #worldMap {
+      height: 400px;
+      width: 100%;
+      border-radius: 15px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    #populationChart {
+      max-height: 300px;
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    #searchInput, #sortSelect {
+      padding: 10px;
+      border: 1px solid var(--secondary-color);
+      border-radius: 5px;
+    }
+
+    .table-container {
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid var(--secondary-color);
+      border-radius: 10px;
+    }
+
+    #countriesTable {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    #countriesTable th, #countriesTable td {
+      border: 1px solid var(--secondary-color);
+      padding: 10px;
+      text-align: left;
+    }
+
+    #countriesTable th {
+      position: sticky;
+      top: 0;
+      background-color: var(--primary-color);
+      color: white;
+      z-index: 10;
+    }
+
+    #countriesTable tr:nth-child(even) {
+      background-color: #f2f2f2;
+    }
+
+    #countriesTable tr:hover {
+      background-color: #e6e6e6;
+    }
+
+    .flag {
+      width: 50px;
+      height: 30px;
+      object-fit: cover;
+    }
+  </style>
 </head>
 <body>
-<div class="container mt-5">
-    <h1 class="mb-4 text-center">Country Population Visualizer</h1>
+<div class="dashboard-container">
+  <h1 class="section-title">Global Countries Insights Dashboard</h1>
 
-    <div class="row mb-4">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Population Distribution</h5>
-                    <div class="chart-container">
-                        <canvas id="populationChart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+  <div id="worldMap"></div>
 
-    <div class="row">
-        <div class="col-md-12">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Country Details</h5>
-                    <div class="table-container">
-                        <table class="table table-striped table-hover">
-                            <thead>
-                            <tr>
-                                <th>Flag</th>
-                                <th>Country</th>
-                                <th>Capital</th>
-                                <th>Population</th>
-                            </tr>
-                            </thead>
-                            <tbody id="countryTableBody">
-                            <!-- Rows dynamically inserted here -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+  <canvas id="populationChart"></canvas>
+
+  <div class="controls">
+    <input type="text" id="searchInput" placeholder="Search countries...">
+    <select id="sortSelect">
+      <option value="population-desc">Population (Highest to Lowest)</option>
+      <option value="population-asc">Population (Lowest to Highest)</option>
+      <option value="name-asc">Name (A-Z)</option>
+      <option value="name-desc">Name (Z-A)</option>
+    </select>
+  </div>
+
+  <div class="table-container">
+    <table id="countriesTable">
+      <thead>
+      <tr>
+        <th>Flag</th>
+        <th>Name</th>
+        <th>Population</th>
+        <th>Region</th>
+        <th>Capital</th>
+      </tr>
+      </thead>
+      <tbody id="countriesTableBody"></tbody>
+    </table>
+  </div>
 </div>
 
-<div class="loading" id="loadingSpinner">
-    <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
-    </div>
-</div>
+<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
 
 <script>
-    document.addEventListener('DOMContentLoaded', async () => {
-        const API_URL = 'https://restcountries.com/v3.1/all'; // API endpoint
-        const tableBody = document.getElementById('countryTableBody');
-        const loadingSpinner = document.getElementById('loadingSpinner');
-        const ctx = document.getElementById('populationChart').getContext('2d');
+  document.addEventListener('DOMContentLoaded', async () => {
+    let allCountries = [];
 
-        loadingSpinner.style.display = 'block'; // Show loading spinner
+    const fetchCountryData = async () => {
+      const response = await fetch('https://restcountries.com/v3.1/all');
+      return await response.json();
+    };
 
-        try {
-            const response = await fetch(API_URL);
-            if (!response.ok) throw new Error('Failed to fetch data');
-            const countries = await response.json();
+    const renderMap = (countries) => {
+      const map = L.map('worldMap').setView([20, 0], 2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+      }).addTo(map);
 
-            // Process and sort countries by population
-            const sortedCountries = countries
-                .filter(country => country.population)
-                .sort((a, b) => b.population - a.population);
+      countries.forEach(country => {
+        L.marker([country.latlng[0], country.latlng[1]])
+                .addTo(map)
+                .bindPopup(`<b>${country.name.common}</b><br>Population: ${country.population}`);
+      });
+    };
 
-            // Populate the table
-            sortedCountries.forEach(country => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>
-                        <img src="${country.flags?.png || 'https://via.placeholder.com/40x30?text=No+Flag'}"
-                             alt="${country.name?.common} flag"
-                             class="flag-img"
-                             onerror="this.src='https://via.placeholder.com/40x30?text=No+Flag';">
-                    </td>
-                    <td class="country-name">${country.name?.common || 'N/A'}</td>
-                    <td>${country.capital?.[0] || 'N/A'}</td>
-                    <td class="population-cell">${country.population.toLocaleString()}</td>
-                `;
-                tableBody.appendChild(row);
-            });
+    const clearTable = () => {
+      const tableBody = document.getElementById('countriesTableBody');
+      tableBody.innerHTML = '';
+    };
 
-            // Top 20 countries for chart
-            const top20 = sortedCountries.slice(0, 20);
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: top20.map(c => c.name.common),
-                    datasets: [{
-                        label: 'Population',
-                        data: top20.map(c => c.population),
-                        backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
-                        borderWidth: 1,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        title: {
-                            display: true,
-                            text: 'Top 20 Countries by Population',
-                            font: { size: 16, weight: 'bold' }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                callback: function(value) {
-                                    return Number(value).toLocaleString();
-                                }
-                            },
-                            title: {
-                                display: true,
-                                text: 'Population'
-                            }
-                        },
-                        x: {
-                            ticks: {
-                                maxRotation: 45,
-                                minRotation: 45
-                            }
-                        }
-                    }
-                }
-            });
+    const renderTable = (countries) => {
+      clearTable();
+      const tableBody = document.getElementById('countriesTableBody');
+      countries.forEach(country => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+                        <td><img src="${country.flags.png}" alt="Flag" class="flag"></td>
+                        <td>${country.name.common}</td>
+                        <td>${country.population.toLocaleString()}</td>
+                        <td>${country.region}</td>
+                        <td>${country.capital ? country.capital[0] : 'N/A'}</td>
+                    `;
+        tableBody.appendChild(row);
+      });
+    };
 
-        } catch (error) {
-            console.error('Error:', error);
-        } finally {
-            loadingSpinner.style.display = 'none'; // Hide loading spinner
+    const createPopulationChart = (countries) => {
+      const topCountries = countries
+              .sort((a, b) => b.population - a.population)
+              .slice(0, 10);
+
+      const ctx = document.getElementById('populationChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: topCountries.map(country => country.name.common),
+          datasets: [{
+            label: 'Population',
+            data: topCountries.map(country => country.population),
+            backgroundColor: [
+              'rgba(13, 20, 81, 0.6)',
+              'rgba(13, 20, 81, 0.6)',
+              'rgba(13, 20, 81, 0.6)',
+              'rgba(13, 20, 81, 0.6)'
+            ],
+            borderColor: [
+              'rgba(13, 20, 81, 1)',
+              'rgba(13, 20, 81, 0.6)',
+              'rgba(13, 20, 81, 0.6)',
+              'rgba(13, 20, 81, 0.6)',
+            ],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Population'
+              }
+            }
+          },
+          plugins: {
+            title: {
+              display: true,
+              text: 'Top 10 Countries by Population'
+            }
+          }
         }
-    });
+      });
+    };
+
+    const filterAndSortCountries = () => {
+      const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+      const sortValue = document.getElementById('sortSelect').value;
+
+      let filteredCountries = allCountries.filter(country =>
+              country.name.common.toLowerCase().includes(searchTerm)
+      );
+
+      switch(sortValue) {
+        case 'population-desc':
+          filteredCountries.sort((a, b) => b.population - a.population);
+          break;
+        case 'population-asc':
+          filteredCountries.sort((a, b) => a.population - b.population);
+          break;
+        case 'name-asc':
+          filteredCountries.sort((a, b) => a.name.common.localeCompare(b.name.common));
+          break;
+        case 'name-desc':
+          filteredCountries.sort((a, b) => b.name.common.localeCompare(a.name.common));
+          break;
+      }
+
+      renderTable(filteredCountries);
+    };
+
+    const initializeApp = async () => {
+      allCountries = await fetchCountryData();
+      renderMap(allCountries);
+      renderTable(allCountries);
+      createPopulationChart(allCountries);
+
+      document.getElementById('searchInput').addEventListener('input', filterAndSortCountries);
+      document.getElementById('sortSelect').addEventListener('change', filterAndSortCountries);
+    };
+
+    initializeApp();
+  });
 </script>
 </body>
 </html>
